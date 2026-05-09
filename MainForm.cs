@@ -1,1 +1,546 @@
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Windows.Forms;
 
+namespace ShortestPathApp
+{
+    public class WeightedEdge
+    {
+        public string SourceVertex;
+        public string DestinationVertex;
+        public int EdgeWeight;
+    }
+
+    public class GraphVertex
+    {
+        public string VertexName;
+        public int PositionX;
+        public int PositionY;
+    }
+
+    public class WeightedGraph
+    {
+        private Dictionary<string, List<WeightedEdge>> adjacencyMap = new Dictionary<string, List<WeightedEdge>>();
+        private Dictionary<string, GraphVertex> vertexMap = new Dictionary<string, GraphVertex>();
+
+        public void CreateVertex(string name, int x, int y)
+        {
+            if (!vertexMap.ContainsKey(name))
+            {
+                vertexMap[name] = new GraphVertex { VertexName = name, PositionX = x, PositionY = y };
+                adjacencyMap[name] = new List<WeightedEdge>();
+            }
+        }
+
+        public void CreateEdge(string from, string to, int weight)
+        {
+            if (vertexMap.ContainsKey(from) && vertexMap.ContainsKey(to))
+            {
+                adjacencyMap[from].Add(new WeightedEdge 
+                { 
+                    SourceVertex = from, 
+                    DestinationVertex = to, 
+                    EdgeWeight = weight 
+                });
+            }
+        }
+
+        public void RemoveVertex(string name)
+        {
+            if (vertexMap.ContainsKey(name))
+            {
+                vertexMap.Remove(name);
+                adjacencyMap.Remove(name);
+                foreach (var edgeList in adjacencyMap.Values)
+                {
+                    edgeList.RemoveAll(edge => edge.DestinationVertex == name);
+                }
+            }
+        }
+
+        public void RemoveEdge(string from, string to)
+        {
+            if (adjacencyMap.ContainsKey(from))
+            {
+                adjacencyMap[from].RemoveAll(edge => edge.DestinationVertex == to);
+            }
+        }
+
+        public void ClearGraph()
+        {
+            vertexMap.Clear();
+            adjacencyMap.Clear();
+        }
+
+        public Dictionary<string, GraphVertex> GetVertices() => vertexMap;
+        public Dictionary<string, List<WeightedEdge>> GetEdges() => adjacencyMap;
+
+        public ShortestPathInfo DijkstraAlgorithm(string startVertex, string endVertex)
+        {
+            if (!vertexMap.ContainsKey(startVertex) || !vertexMap.ContainsKey(endVertex))
+                return new ShortestPathInfo { IsPathFound = false };
+
+            var costToVertex = new Dictionary<string, int>();
+            var predecessorVertex = new Dictionary<string, string>();
+            var remainingVertices = new HashSet<string>();
+
+            foreach (var v in vertexMap.Keys)
+            {
+                costToVertex[v] = int.MaxValue;
+                predecessorVertex[v] = null;
+                remainingVertices.Add(v);
+            }
+
+            costToVertex[startVertex] = 0;
+
+            while (remainingVertices.Count > 0)
+            {
+                string minVertex = null;
+                int minCost = int.MaxValue;
+
+                foreach (var v in remainingVertices)
+                {
+                    if (costToVertex[v] < minCost)
+                    {
+                        minCost = costToVertex[v];
+                        minVertex = v;
+                    }
+                }
+
+                if (minVertex == null || costToVertex[minVertex] == int.MaxValue)
+                    break;
+
+                remainingVertices.Remove(minVertex);
+
+                if (minVertex == endVertex)
+                    break;
+
+                foreach (var edge in adjacencyMap[minVertex])
+                {
+                    if (remainingVertices.Contains(edge.DestinationVertex))
+                    {
+                        int newCost = costToVertex[minVertex] + edge.EdgeWeight;
+                        if (newCost < costToVertex[edge.DestinationVertex])
+                        {
+                            costToVertex[edge.DestinationVertex] = newCost;
+                            predecessorVertex[edge.DestinationVertex] = minVertex;
+                        }
+                    }
+                }
+            }
+
+            if (costToVertex[endVertex] == int.MaxValue)
+                return new ShortestPathInfo { IsPathFound = false };
+
+            var reconstructedPath = new List<string>();
+            string current = endVertex;
+            while (current != null)
+            {
+                reconstructedPath.Insert(0, current);
+                current = predecessorVertex[current];
+            }
+
+            return new ShortestPathInfo
+            {
+                IsPathFound = true,
+                VertexSequence = reconstructedPath,
+                TotalCost = costToVertex[endVertex]
+            };
+        }
+    }
+
+    public class ShortestPathInfo
+    {
+        public bool IsPathFound;
+        public List<string> VertexSequence;
+        public int TotalCost;
+    }
+
+    public class MainForm : Form
+    {
+        private WeightedGraph myGraph;
+        private Panel visualizationPanel;
+        private TextBox nodeNameBox, edgeFromBox, edgeToBox, weightBox, startBox, endBox, resultBox;
+        private Button addNodeBtn, delNodeBtn, addEdgeBtn, delEdgeBtn, findPathBtn, resetBtn, clearBtn;
+        private ShortestPathInfo calculatedPath;
+
+        public MainForm()
+        {
+            BuildUserInterface();
+            myGraph = new WeightedGraph();
+            LoadDefaultGraph();
+        }
+
+        private void BuildUserInterface()
+        {
+            Text = "Алгоритм Дейкстры - Граф";
+            Size = new Size(1200, 700);
+            StartPosition = FormStartPosition.CenterScreen;
+
+            visualizationPanel = new Panel
+            {
+                Location = new Point(10, 10),
+                Size = new Size(700, 600),
+                BorderStyle = BorderStyle.FixedSingle,
+                BackColor = Color.White
+            };
+            visualizationPanel.Paint += DrawGraph;
+            Controls.Add(visualizationPanel);
+
+            int x = 730, y = 10;
+
+            Controls.Add(new Label { Text = "Управление вершинами:", Location = new Point(x, y), Size = new Size(180, 20), Font = new Font("Arial", 10, FontStyle.Bold) });
+            y += 25;
+            Controls.Add(new Label { Text = "Имя:", Location = new Point(x, y), Size = new Size(80, 20) });
+            y += 20;
+            nodeNameBox = new TextBox { Location = new Point(x, y), Size = new Size(200, 25) };
+            Controls.Add(nodeNameBox);
+            y += 30;
+
+            addNodeBtn = new Button { Text = "Добавить", Location = new Point(x, y), Size = new Size(95, 30) };
+            addNodeBtn.Click += (s, e) => HandleAddNode();
+            Controls.Add(addNodeBtn);
+
+            delNodeBtn = new Button { Text = "Удалить", Location = new Point(x + 105, y), Size = new Size(95, 30) };
+            delNodeBtn.Click += (s, e) => HandleDeleteNode();
+            Controls.Add(delNodeBtn);
+            y += 45;
+
+            Controls.Add(new Label { Text = "Управление рёбрами:", Location = new Point(x, y), Size = new Size(180, 20), Font = new Font("Arial", 10, FontStyle.Bold) });
+            y += 25;
+            Controls.Add(new Label { Text = "От:", Location = new Point(x, y), Size = new Size(80, 20) });
+            y += 20;
+            edgeFromBox = new TextBox { Location = new Point(x, y), Size = new Size(200, 25) };
+            Controls.Add(edgeFromBox);
+            y += 30;
+
+            Controls.Add(new Label { Text = "До:", Location = new Point(x, y), Size = new Size(80, 20) });
+            y += 20;
+            edgeToBox = new TextBox { Location = new Point(x, y), Size = new Size(200, 25) };
+            Controls.Add(edgeToBox);
+            y += 30;
+
+            Controls.Add(new Label { Text = "Вес:", Location = new Point(x, y), Size = new Size(80, 20) });
+            y += 20;
+            weightBox = new TextBox { Location = new Point(x, y), Size = new Size(200, 25) };
+            Controls.Add(weightBox);
+            y += 30;
+
+            addEdgeBtn = new Button { Text = "Добавить", Location = new Point(x, y), Size = new Size(95, 30) };
+            addEdgeBtn.Click += (s, e) => HandleAddEdge();
+            Controls.Add(addEdgeBtn);
+
+            delEdgeBtn = new Button { Text = "Удалить", Location = new Point(x + 105, y), Size = new Size(95, 30) };
+            delEdgeBtn.Click += (s, e) => HandleDeleteEdge();
+            Controls.Add(delEdgeBtn);
+            y += 45;
+
+            Controls.Add(new Label { Text = "Поиск пути:", Location = new Point(x, y), Size = new Size(180, 20), Font = new Font("Arial", 10, FontStyle.Bold) });
+            y += 25;
+            Controls.Add(new Label { Text = "Начало:", Location = new Point(x, y), Size = new Size(80, 20) });
+            y += 20;
+            startBox = new TextBox { Location = new Point(x, y), Size = new Size(200, 25) };
+            Controls.Add(startBox);
+            y += 30;
+
+            Controls.Add(new Label { Text = "Конец:", Location = new Point(x, y), Size = new Size(80, 20) });
+            y += 20;
+            endBox = new TextBox { Location = new Point(x, y), Size = new Size(200, 25) };
+            Controls.Add(endBox);
+            y += 30;
+
+            findPathBtn = new Button { Text = "Найти путь", Location = new Point(x, y), Size = new Size(200, 35), BackColor = Color.LightGreen, Font = new Font("Arial", 10, FontStyle.Bold) };
+            findPathBtn.Click += (s, e) => HandleFindPath();
+            Controls.Add(findPathBtn);
+            y += 45;
+
+            resetBtn = new Button { Text = "Граф по умолчанию", Location = new Point(x, y), Size = new Size(200, 30), BackColor = Color.LightBlue };
+            resetBtn.Click += (s, e) => { LoadDefaultGraph(); resultBox.Clear(); ShowMessage("Восстановлен граф по умолчанию"); };
+            Controls.Add(resetBtn);
+            y += 35;
+
+            clearBtn = new Button { Text = "Очистить", Location = new Point(x, y), Size = new Size(200, 30), BackColor = Color.LightCoral };
+            clearBtn.Click += (s, e) => { myGraph.ClearGraph(); calculatedPath = null; resultBox.Clear(); visualizationPanel.Invalidate(); ShowMessage("Граф очищен"); };
+            Controls.Add(clearBtn);
+            y += 40;
+
+            Controls.Add(new Label { Text = "Результат:", Location = new Point(x, y), Size = new Size(100, 20), Font = new Font("Arial", 10, FontStyle.Bold) });
+            y += 25;
+            resultBox = new TextBox { Location = new Point(x, y), Size = new Size(430, 80), Multiline = true, ScrollBars = ScrollBars.Vertical, ReadOnly = true };
+            Controls.Add(resultBox);
+        }
+
+        private void LoadDefaultGraph()
+        {
+            myGraph.ClearGraph();
+            calculatedPath = null;
+
+            myGraph.CreateVertex("A", 150, 100);
+            myGraph.CreateVertex("B", 350, 80);
+            myGraph.CreateVertex("C", 550, 120);
+            myGraph.CreateVertex("D", 150, 300);
+            myGraph.CreateVertex("E", 350, 350);
+            myGraph.CreateVertex("F", 550, 320);
+
+            myGraph.CreateEdge("A", "B", 4);
+            myGraph.CreateEdge("A", "D", 2);
+            myGraph.CreateEdge("B", "A", 4);
+            myGraph.CreateEdge("B", "C", 3);
+            myGraph.CreateEdge("B", "E", 6);
+            myGraph.CreateEdge("C", "B", 3);
+            myGraph.CreateEdge("C", "F", 2);
+            myGraph.CreateEdge("D", "A", 2);
+            myGraph.CreateEdge("D", "E", 1);
+            myGraph.CreateEdge("E", "B", 6);
+            myGraph.CreateEdge("E", "D", 1);
+            myGraph.CreateEdge("E", "F", 5);
+            myGraph.CreateEdge("F", "C", 2);
+            myGraph.CreateEdge("F", "E", 5);
+
+            visualizationPanel.Invalidate();
+        }
+
+        private void HandleAddNode()
+        {
+            string name = nodeNameBox.Text.Trim().ToUpper();
+            if (string.IsNullOrEmpty(name))
+            {
+                ShowWarning("Введите имя вершины");
+                return;
+            }
+
+            if (myGraph.GetVertices().ContainsKey(name))
+            {
+                ShowWarning("Вершина существует");
+                return;
+            }
+
+            var rnd = new Random();
+            myGraph.CreateVertex(name, rnd.Next(50, 650), rnd.Next(50, 550));
+            nodeNameBox.Clear();
+            calculatedPath = null;
+            visualizationPanel.Invalidate();
+            ShowMessage($"Добавлена вершина {name}");
+        }
+
+        private void HandleDeleteNode()
+        {
+            string name = nodeNameBox.Text.Trim().ToUpper();
+            if (string.IsNullOrEmpty(name))
+            {
+                ShowWarning("Введите имя вершины");
+                return;
+            }
+
+            if (!myGraph.GetVertices().ContainsKey(name))
+            {
+                ShowWarning("Вершина не найдена");
+                return;
+            }
+
+            myGraph.RemoveVertex(name);
+            nodeNameBox.Clear();
+            calculatedPath = null;
+            visualizationPanel.Invalidate();
+            ShowMessage($"Удалена вершина {name}");
+        }
+
+        private void HandleAddEdge()
+        {
+            string from = edgeFromBox.Text.Trim().ToUpper();
+            string to = edgeToBox.Text.Trim().ToUpper();
+            string wStr = weightBox.Text.Trim();
+
+            if (string.IsNullOrEmpty(from) || string.IsNullOrEmpty(to) || string.IsNullOrEmpty(wStr))
+            {
+                ShowWarning("Заполните все поля");
+                return;
+            }
+
+            if (!int.TryParse(wStr, out int weight) || weight <= 0)
+            {
+                ShowWarning("Вес должен быть положительным числом");
+                return;
+            }
+
+            if (!myGraph.GetVertices().ContainsKey(from) || !myGraph.GetVertices().ContainsKey(to))
+            {
+                ShowWarning("Вершины не существуют");
+                return;
+            }
+
+            myGraph.CreateEdge(from, to, weight);
+            edgeFromBox.Clear();
+            edgeToBox.Clear();
+            weightBox.Clear();
+            calculatedPath = null;
+            visualizationPanel.Invalidate();
+            ShowMessage($"Добавлено ребро {from}→{to} вес {weight}");
+        }
+
+        private void HandleDeleteEdge()
+        {
+            string from = edgeFromBox.Text.Trim().ToUpper();
+            string to = edgeToBox.Text.Trim().ToUpper();
+
+            if (string.IsNullOrEmpty(from) || string.IsNullOrEmpty(to))
+            {
+                ShowWarning("Введите вершины");
+                return;
+            }
+
+            myGraph.RemoveEdge(from, to);
+            edgeFromBox.Clear();
+            edgeToBox.Clear();
+            weightBox.Clear();
+            calculatedPath = null;
+            visualizationPanel.Invalidate();
+            ShowMessage($"Удалено ребро {from}→{to}");
+        }
+
+        private void HandleFindPath()
+        {
+            string start = startBox.Text.Trim().ToUpper();
+            string end = endBox.Text.Trim().ToUpper();
+
+            if (string.IsNullOrEmpty(start) || string.IsNullOrEmpty(end))
+            {
+                ShowWarning("Введите начало и конец");
+                return;
+            }
+
+            if (!myGraph.GetVertices().ContainsKey(start) || !myGraph.GetVertices().ContainsKey(end))
+            {
+                ShowWarning("Вершины не существуют");
+                return;
+            }
+
+            calculatedPath = myGraph.DijkstraAlgorithm(start, end);
+
+            if (!calculatedPath.IsPathFound)
+            {
+                resultBox.Text = $"Путь {start}→{end} не найден\r\nГраф может быть несвязанным";
+                ShowMessage("Путь не существует");
+            }
+            else
+            {
+                string pathStr = string.Join(" → ", calculatedPath.VertexSequence);
+                resultBox.Text = $"Кратчайший путь {start}→{end}:\r\n{pathStr}\r\nРасстояние: {calculatedPath.TotalCost}\r\nВершин: {calculatedPath.VertexSequence.Count}";
+                ShowMessage($"Найден путь! Расстояние: {calculatedPath.TotalCost}");
+            }
+
+            visualizationPanel.Invalidate();
+        }
+
+        private void DrawGraph(object sender, PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+
+            var normalPen = new Pen(Color.Black, 2);
+            var highlightPen = new Pen(Color.Red, 3);
+            var weightFont = new Font("Arial", 9, FontStyle.Bold);
+
+            foreach (var kvp in myGraph.GetEdges())
+            {
+                var vertices = myGraph.GetVertices();
+                var fromVertex = vertices[kvp.Key];
+                int fromX = fromVertex.PositionX;
+                int fromY = fromVertex.PositionY;
+
+                foreach (var edge in kvp.Value)
+                {
+                    var toVertex = vertices[edge.DestinationVertex];
+                    int toX = toVertex.PositionX;
+                    int toY = toVertex.PositionY;
+
+                    bool highlight = false;
+                    if (calculatedPath != null && calculatedPath.IsPathFound)
+                    {
+                        for (int i = 0; i < calculatedPath.VertexSequence.Count - 1; i++)
+                        {
+                            if (calculatedPath.VertexSequence[i] == edge.SourceVertex && 
+                                calculatedPath.VertexSequence[i + 1] == edge.DestinationVertex)
+                            {
+                                highlight = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    g.DrawLine(highlight ? highlightPen : normalPen, fromX, fromY, toX, toY);
+                    DrawArrowTip(g, highlight ? highlightPen : normalPen, fromX, fromY, toX, toY);
+
+                    int midX = (fromX + toX) / 2;
+                    int midY = (fromY + toY) / 2;
+                    string wText = edge.EdgeWeight.ToString();
+                    var textSize = g.MeasureString(wText, weightFont);
+                    g.FillEllipse(Brushes.White, midX - textSize.Width / 2 - 2, midY - textSize.Height / 2 - 2, textSize.Width + 4, textSize.Height + 4);
+                    g.DrawString(wText, weightFont, Brushes.Blue, midX - textSize.Width / 2, midY - textSize.Height / 2);
+                }
+            }
+
+            int radius = 25;
+            var nodeFont = new Font("Arial", 12, FontStyle.Bold);
+            var nodePen = new Pen(Color.Black, 2);
+
+            foreach (var vertex in myGraph.GetVertices().Values)
+            {
+                bool inPath = calculatedPath != null && calculatedPath.IsPathFound && calculatedPath.VertexSequence.Contains(vertex.VertexName);
+                var brush = inPath ? Brushes.Yellow : Brushes.LightBlue;
+
+                g.FillEllipse(brush, vertex.PositionX - radius, vertex.PositionY - radius, radius * 2, radius * 2);
+                g.DrawEllipse(nodePen, vertex.PositionX - radius, vertex.PositionY - radius, radius * 2, radius * 2);
+
+                var textSize = g.MeasureString(vertex.VertexName, nodeFont);
+                g.DrawString(vertex.VertexName, nodeFont, Brushes.Black, vertex.PositionX - textSize.Width / 2, vertex.PositionY - textSize.Height / 2);
+            }
+        }
+
+        private void DrawArrowTip(Graphics g, Pen pen, int x1, int y1, int x2, int y2)
+        {
+            const int arrowLen = 10;
+            const int nodeRad = 25;
+
+            double dx = x2 - x1;
+            double dy = y2 - y1;
+            double dist = Math.Sqrt(dx * dx + dy * dy);
+
+            if (dist == 0) return;
+
+            dx /= dist;
+            dy /= dist;
+
+            int tipX = (int)(x2 - dx * nodeRad);
+            int tipY = (int)(y2 - dy * nodeRad);
+
+            double angle = Math.Atan2(dy, dx);
+            int leftX = (int)(tipX - arrowLen * Math.Cos(angle - Math.PI / 6));
+            int leftY = (int)(tipY - arrowLen * Math.Sin(angle - Math.PI / 6));
+            int rightX = (int)(tipX - arrowLen * Math.Cos(angle + Math.PI / 6));
+            int rightY = (int)(tipY - arrowLen * Math.Sin(angle + Math.PI / 6));
+
+            g.DrawLine(pen, tipX, tipY, leftX, leftY);
+            g.DrawLine(pen, tipX, tipY, rightX, rightY);
+        }
+
+        private void ShowMessage(string msg)
+        {
+            MessageBox.Show(msg, "Информация", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        private void ShowWarning(string msg)
+        {
+            MessageBox.Show(msg, "Предупреждение", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+
+        [STAThread]
+        static void Main()
+        {
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+            Application.Run(new MainForm());
+        }
+    }
+}
