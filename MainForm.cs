@@ -299,7 +299,7 @@ namespace ShortestPathApp
                     break;
 
                 remainingVertices.Remove(minVertex);
-            visitedCount++;
+                visitedCount++;
 
                 if (minVertex == endVertex)
                     break;
@@ -308,7 +308,7 @@ namespace ShortestPathApp
                 {
                     if (remainingVertices.Contains(edge.DestinationVertex))
                     {
-                    relaxationCount++;
+                        relaxationCount++;
                         int newCost = costToVertex[minVertex] + edge.EdgeWeight;
                         if (newCost < costToVertex[edge.DestinationVertex])
                         {
@@ -320,7 +320,7 @@ namespace ShortestPathApp
             }
 
             if (costToVertex[endVertex] == int.MaxValue)
-            return new ShortestPathInfo 
+                return new ShortestPathInfo 
             { 
                 IsPathFound = false, 
                 RelaxationCount = relaxationCount, 
@@ -339,11 +339,11 @@ namespace ShortestPathApp
             return new ShortestPathInfo
             {
                 IsPathFound = true,
+                VertexSequence = reconstructedPath,
             TotalCost = costToVertex[endVertex],
-            RelaxationCount = relaxationCount,
-            VisitedNodesCount = visitedCount,
-            AlgorithmName = "Dijkstra"
-                TotalCost = costToVertex[endVertex]
+                RelaxationCount = relaxationCount,
+                VisitedNodesCount = visitedCount,
+                AlgorithmName = "Dijkstra"
             };
         }
     }
@@ -352,6 +352,7 @@ namespace ShortestPathApp
     {
         public bool IsPathFound;
         public List<string> VertexSequence;
+        public int TotalCost;
         public int RelaxationCount;
         public int VisitedNodesCount;
         public string AlgorithmName;
@@ -371,10 +372,11 @@ namespace ShortestPathApp
     public class MainForm : Form
     {
         private WeightedGraph myGraph;
+        private Panel visualizationPanel;
         private TextBox nodeNameBox, edgeFromBox, edgeToBox, weightBox, startBox, endBox, resultBox, analysisBox;
-        private Button addNodeBtn, delNodeBtn, addEdgeBtn, delEdgeBtn, findPathBtn, resetBtn, clearBtn, analyzeBtn;
-        private ComboBox algorithmCombo;
         private Button addNodeBtn, delNodeBtn, addEdgeBtn, delEdgeBtn, findPathBtn, resetBtn, clearBtn;
+        private ComboBox algorithmCombo;
+        private Button analyzeBtn;
         private ShortestPathInfo calculatedPath;
 
         public MainForm()
@@ -384,7 +386,7 @@ namespace ShortestPathApp
             LoadDefaultGraph();
         }
 
-            Text = "Алгоритмы поиска кратчайшего пути - Дейкстра, A*, Naive";
+        private void BuildUserInterface()
         {
             Text = "Алгоритм Дейкстры - Граф";
             Size = new Size(1200, 700);
@@ -447,8 +449,8 @@ namespace ShortestPathApp
             delEdgeBtn.Click += (s, e) => HandleDeleteEdge();
             Controls.Add(delEdgeBtn);
             y += 45;
-            y += 25;
-            Controls.Add(new Label { Text = "Алгоритм:", Location = new Point(x, y), Size = new Size(80, 20) });
+
+            Controls.Add(new Label { Text = "Поиск пути:", Location = new Point(x, y), Size = new Size(180, 20), Font = new Font("Arial", 10, FontStyle.Bold) });
             y += 20;
             algorithmCombo = new ComboBox 
             { 
@@ -459,8 +461,8 @@ namespace ShortestPathApp
             algorithmCombo.Items.AddRange(new string[] { "Dijkstra", "A*", "Naive O(n²+m)" });
             algorithmCombo.SelectedIndex = 0;
             Controls.Add(algorithmCombo);
+            y += 30;
 
-            Controls.Add(new Label { Text = "Поиск пути:", Location = new Point(x, y), Size = new Size(180, 20), Font = new Font("Arial", 10, FontStyle.Bold) });
             y += 25;
             Controls.Add(new Label { Text = "Начало:", Location = new Point(x, y), Size = new Size(80, 20) });
             y += 20;
@@ -477,12 +479,13 @@ namespace ShortestPathApp
             findPathBtn = new Button { Text = "Найти путь", Location = new Point(x, y), Size = new Size(200, 35), BackColor = Color.LightGreen, Font = new Font("Arial", 10, FontStyle.Bold) };
             findPathBtn.Click += (s, e) => HandleFindPath();
             Controls.Add(findPathBtn);
+            y += 45;
+
             analyzeBtn = new Button { Text = "Сравнить алгоритмы", Location = new Point(x, y), Size = new Size(200, 35), BackColor = Color.LightYellow, Font = new Font("Arial", 9, FontStyle.Bold) };
             analyzeBtn.Click += (s, e) => HandleAnalyzeAlgorithms();
             Controls.Add(analyzeBtn);
             y += 45;
 
-            y += 45;
 
             resetBtn = new Button { Text = "Граф по умолчанию", Location = new Point(x, y), Size = new Size(200, 30), BackColor = Color.LightBlue };
             resetBtn.Click += (s, e) => { LoadDefaultGraph(); resultBox.Clear(); ShowMessage("Восстановлен граф по умолчанию"); };
@@ -497,13 +500,13 @@ namespace ShortestPathApp
             Controls.Add(new Label { Text = "Результат:", Location = new Point(x, y), Size = new Size(100, 20), Font = new Font("Arial", 10, FontStyle.Bold) });
             y += 25;
             resultBox = new TextBox { Location = new Point(x, y), Size = new Size(430, 80), Multiline = true, ScrollBars = ScrollBars.Vertical, ReadOnly = true };
+            Controls.Add(resultBox);
             y += 90;
 
             Controls.Add(new Label { Text = "Анализ эффективности:", Location = new Point(x, y), Size = new Size(180, 20), Font = new Font("Arial", 10, FontStyle.Bold) });
             y += 25;
             analysisBox = new TextBox { Location = new Point(x, y), Size = new Size(430, 120), Multiline = true, ScrollBars = ScrollBars.Vertical, ReadOnly = true, Font = new Font("Courier New", 8) };
             Controls.Add(analysisBox);
-            Controls.Add(resultBox);
         }
 
         private void LoadDefaultGraph()
@@ -653,7 +656,6 @@ namespace ShortestPathApp
             // Select algorithm based on combo box
             string selectedAlgorithm = algorithmCombo.SelectedItem.ToString();
             calculatedPath = FindPathWithAlgorithm(selectedAlgorithm, start, end);
-            calculatedPath = myGraph.DijkstraAlgorithm(start, end);
             DisplayPathResult(calculatedPath, start, end);
             visualizationPanel.Invalidate();
         }
@@ -661,14 +663,14 @@ namespace ShortestPathApp
         private ShortestPathInfo FindPathWithAlgorithm(string algorithm, string start, string end)
         {
             switch (algorithm)
-            if (!calculatedPath.IsPathFound)
+            {
                 case "A*":
                     return myGraph.AStarAlgorithm(start, end);
                 case "Naive O(n²+m)":
                     return myGraph.NaiveShortestPath(start, end);
                 default: // Dijkstra
                     return myGraph.DijkstraAlgorithm(start, end);
-                ShowMessage("Путь не существует");
+            }
         }
 
         private void DisplayPathResult(ShortestPathInfo path, string start, string end)
@@ -678,19 +680,19 @@ namespace ShortestPathApp
                 resultBox.Text = $"Путь {start}→{end} не найден\r\nГраф может быть несвязанным\r\nАлгоритм: {path.AlgorithmName}";
                 ShowMessage("Путь не существует");
             }
-            }
             else
+            {
                 string pathStr = string.Join(" → ", path.VertexSequence);
                 resultBox.Text = $"Алгоритм: {path.AlgorithmName}\r\n" +
                                 $"Кратчайший путь {start}→{end}:\r\n{pathStr}\r\n" +
-                                $"Расстояние: {path.TotalCost}\r\n" +
-                                $"Вершин в пути: {path.VertexSequence.Count}\r\n" +
-                                $"Релаксаций: {path.RelaxationCount}\r\n" +
-                                $"Посещено вершин: {path.VisitedNodesCount}";
+                                 $"Расстояние: {path.TotalCost}\r\n" +
+                                 $"Вершин в пути: {path.VertexSequence.Count}\r\n" +
+                                 $"Релаксаций: {path.RelaxationCount}\r\n" +
+                                 $"Посещено вершин: {path.VisitedNodesCount}";
                 ShowMessage($"Найден путь! Расстояние: {path.TotalCost}");
-                ShowMessage($"Найден путь! Расстояние: {calculatedPath.TotalCost}");
-        }
             }
+        }
+
         private void HandleAnalyzeAlgorithms()
         {
             string start = startBox.Text.Trim().ToUpper();
@@ -738,6 +740,7 @@ namespace ShortestPathApp
             {
                 AlgorithmName = algorithm,
                 VertexCount = myGraph.GetVertices().Count,
+                TotalCost = pathInfo.TotalCost,
                 EdgeCount = myGraph.GetEdges().Values.Sum(list => list.Count),
                 RelaxationCount = pathInfo.RelaxationCount,
                 VisitedNodesCount = pathInfo.VisitedNodesCount,
