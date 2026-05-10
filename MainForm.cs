@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Linq;
 using System.Windows.Forms;
 
 namespace ShortestPathApp
@@ -76,14 +77,200 @@ namespace ShortestPathApp
         public Dictionary<string, GraphVertex> GetVertices() => vertexMap;
         public Dictionary<string, List<WeightedEdge>> GetEdges() => adjacencyMap;
 
+        private double CalculateHeuristic(string from, string to)
+        {
+            var fromVertex = vertexMap[from];
+            var toVertex = vertexMap[to];
+            int dx = toVertex.PositionX - fromVertex.PositionX;
+            int dy = toVertex.PositionY - fromVertex.PositionY;
+            return Math.Sqrt(dx * dx + dy * dy) / 50.0; // Normalize by approximate edge length
+        }
+
+        public ShortestPathInfo AStarAlgorithm(string startVertex, string endVertex)
+        {
+            if (!vertexMap.ContainsKey(startVertex) || !vertexMap.ContainsKey(endVertex))
+                return new ShortestPathInfo { IsPathFound = false, AlgorithmName = "A*" };
+
+            var gScore = new Dictionary<string, double>();
+            var fScore = new Dictionary<string, double>();
+            var predecessorVertex = new Dictionary<string, string>();
+            var openSet = new HashSet<string>();
+            var closedSet = new HashSet<string>();
+            int relaxationCount = 0;
+            int visitedCount = 0;
+
+            foreach (var v in vertexMap.Keys)
+            {
+                gScore[v] = double.MaxValue;
+                fScore[v] = double.MaxValue;
+                predecessorVertex[v] = null;
+            }
+
+            gScore[startVertex] = 0;
+            fScore[startVertex] = CalculateHeuristic(startVertex, endVertex);
+            openSet.Add(startVertex);
+
+            while (openSet.Count > 0)
+            {
+                // Find vertex with minimum fScore
+                string current = null;
+                double minFScore = double.MaxValue;
+                foreach (var v in openSet)
+                {
+                    if (fScore[v] < minFScore)
+                    {
+                        minFScore = fScore[v];
+                        current = v;
+                    }
+                }
+
+                if (current == null)
+                    break;
+
+                visitedCount++;
+
+                if (current == endVertex)
+                {
+                    var reconstructedPath = new List<string>();
+                    string node = endVertex;
+                    while (node != null)
+                    {
+                        reconstructedPath.Insert(0, node);
+                        node = predecessorVertex[node];
+                    }
+
+                    return new ShortestPathInfo
+                    {
+                        IsPathFound = true,
+                        VertexSequence = reconstructedPath,
+                        TotalCost = (int)gScore[endVertex],
+                        RelaxationCount = relaxationCount,
+                        VisitedNodesCount = visitedCount,
+                        AlgorithmName = "A*"
+                    };
+                }
+
+                openSet.Remove(current);
+                closedSet.Add(current);
+
+                foreach (var edge in adjacencyMap[current])
+                {
+                    if (closedSet.Contains(edge.DestinationVertex))
+                        continue;
+
+                    double tentativeGScore = gScore[current] + edge.EdgeWeight;
+                    relaxationCount++;
+
+                    if (!openSet.Contains(edge.DestinationVertex))
+                    {
+                        openSet.Add(edge.DestinationVertex);
+                    }
+                    else if (tentativeGScore >= gScore[edge.DestinationVertex])
+                    {
+                        continue;
+                    }
+
+                    predecessorVertex[edge.DestinationVertex] = current;
+                    gScore[edge.DestinationVertex] = tentativeGScore;
+                    fScore[edge.DestinationVertex] = gScore[edge.DestinationVertex] + CalculateHeuristic(edge.DestinationVertex, endVertex);
+                }
+            }
+
+            return new ShortestPathInfo 
+            { 
+                IsPathFound = false, 
+                RelaxationCount = relaxationCount, 
+                VisitedNodesCount = visitedCount,
+                AlgorithmName = "A*"
+            };
+        }
+
+        public ShortestPathInfo NaiveShortestPath(string startVertex, string endVertex)
+        {
+            if (!vertexMap.ContainsKey(startVertex) || !vertexMap.ContainsKey(endVertex))
+                return new ShortestPathInfo { IsPathFound = false, AlgorithmName = "Naive O(n²+m)" };
+
+            var costToVertex = new Dictionary<string, int>();
+            var predecessorVertex = new Dictionary<string, string>();
+            int relaxationCount = 0;
+            int visitedCount = 0;
+
+            foreach (var v in vertexMap.Keys)
+            {
+                costToVertex[v] = int.MaxValue;
+                predecessorVertex[v] = null;
+            }
+
+            costToVertex[startVertex] = 0;
+            int n = vertexMap.Count;
+
+            // Naive approach: relax all edges n-1 times
+            for (int i = 0; i < n - 1; i++)
+            {
+                bool updated = false;
+                visitedCount++;
+
+                foreach (var kvp in adjacencyMap)
+                {
+                    string u = kvp.Key;
+                    if (costToVertex[u] == int.MaxValue)
+                        continue;
+
+                    foreach (var edge in kvp.Value)
+                    {
+                        relaxationCount++;
+                        int newCost = costToVertex[u] + edge.EdgeWeight;
+                        if (newCost < costToVertex[edge.DestinationVertex])
+                        {
+                            costToVertex[edge.DestinationVertex] = newCost;
+                            predecessorVertex[edge.DestinationVertex] = u;
+                            updated = true;
+                        }
+                    }
+                }
+
+                if (!updated)
+                    break;
+            }
+
+            if (costToVertex[endVertex] == int.MaxValue)
+                return new ShortestPathInfo 
+                { 
+                    IsPathFound = false, 
+                    RelaxationCount = relaxationCount, 
+                    VisitedNodesCount = visitedCount,
+                    AlgorithmName = "Naive O(n²+m)"
+                };
+
+            var reconstructedPath = new List<string>();
+            string current = endVertex;
+            while (current != null)
+            {
+                reconstructedPath.Insert(0, current);
+                current = predecessorVertex[current];
+            }
+
+            return new ShortestPathInfo
+            {
+                IsPathFound = true,
+                VertexSequence = reconstructedPath,
+                TotalCost = costToVertex[endVertex],
+                RelaxationCount = relaxationCount,
+                VisitedNodesCount = visitedCount,
+                AlgorithmName = "Naive O(n²+m)"
+            };
+        }
+
         public ShortestPathInfo DijkstraAlgorithm(string startVertex, string endVertex)
         {
             if (!vertexMap.ContainsKey(startVertex) || !vertexMap.ContainsKey(endVertex))
-                return new ShortestPathInfo { IsPathFound = false };
+                return new ShortestPathInfo { IsPathFound = false, AlgorithmName = "Dijkstra" };
 
             var costToVertex = new Dictionary<string, int>();
             var predecessorVertex = new Dictionary<string, string>();
             var remainingVertices = new HashSet<string>();
+            int relaxationCount = 0;
+            int visitedCount = 0;
 
             foreach (var v in vertexMap.Keys)
             {
@@ -112,6 +299,7 @@ namespace ShortestPathApp
                     break;
 
                 remainingVertices.Remove(minVertex);
+            visitedCount++;
 
                 if (minVertex == endVertex)
                     break;
@@ -120,6 +308,7 @@ namespace ShortestPathApp
                 {
                     if (remainingVertices.Contains(edge.DestinationVertex))
                     {
+                    relaxationCount++;
                         int newCost = costToVertex[minVertex] + edge.EdgeWeight;
                         if (newCost < costToVertex[edge.DestinationVertex])
                         {
@@ -131,7 +320,13 @@ namespace ShortestPathApp
             }
 
             if (costToVertex[endVertex] == int.MaxValue)
-                return new ShortestPathInfo { IsPathFound = false };
+            return new ShortestPathInfo 
+            { 
+                IsPathFound = false, 
+                RelaxationCount = relaxationCount, 
+                VisitedNodesCount = visitedCount,
+                AlgorithmName = "Dijkstra"
+            };
 
             var reconstructedPath = new List<string>();
             string current = endVertex;
@@ -144,7 +339,10 @@ namespace ShortestPathApp
             return new ShortestPathInfo
             {
                 IsPathFound = true,
-                VertexSequence = reconstructedPath,
+            TotalCost = costToVertex[endVertex],
+            RelaxationCount = relaxationCount,
+            VisitedNodesCount = visitedCount,
+            AlgorithmName = "Dijkstra"
                 TotalCost = costToVertex[endVertex]
             };
         }
@@ -154,14 +352,28 @@ namespace ShortestPathApp
     {
         public bool IsPathFound;
         public List<string> VertexSequence;
+        public int RelaxationCount;
+        public int VisitedNodesCount;
+        public string AlgorithmName;
+    }
+
+    public class PerformanceResult
+    {
+        public string AlgorithmName;
+        public int VertexCount;
+        public int EdgeCount;
+        public int RelaxationCount;
+        public int VisitedNodesCount;
+        public double ExecutionTimeMs;
         public int TotalCost;
     }
 
     public class MainForm : Form
     {
         private WeightedGraph myGraph;
-        private Panel visualizationPanel;
-        private TextBox nodeNameBox, edgeFromBox, edgeToBox, weightBox, startBox, endBox, resultBox;
+        private TextBox nodeNameBox, edgeFromBox, edgeToBox, weightBox, startBox, endBox, resultBox, analysisBox;
+        private Button addNodeBtn, delNodeBtn, addEdgeBtn, delEdgeBtn, findPathBtn, resetBtn, clearBtn, analyzeBtn;
+        private ComboBox algorithmCombo;
         private Button addNodeBtn, delNodeBtn, addEdgeBtn, delEdgeBtn, findPathBtn, resetBtn, clearBtn;
         private ShortestPathInfo calculatedPath;
 
@@ -172,7 +384,7 @@ namespace ShortestPathApp
             LoadDefaultGraph();
         }
 
-        private void BuildUserInterface()
+            Text = "Алгоритмы поиска кратчайшего пути - Дейкстра, A*, Naive";
         {
             Text = "Алгоритм Дейкстры - Граф";
             Size = new Size(1200, 700);
@@ -235,6 +447,18 @@ namespace ShortestPathApp
             delEdgeBtn.Click += (s, e) => HandleDeleteEdge();
             Controls.Add(delEdgeBtn);
             y += 45;
+            y += 25;
+            Controls.Add(new Label { Text = "Алгоритм:", Location = new Point(x, y), Size = new Size(80, 20) });
+            y += 20;
+            algorithmCombo = new ComboBox 
+            { 
+                Location = new Point(x, y), 
+                Size = new Size(200, 25),
+                DropDownStyle = ComboBoxStyle.DropDownList
+            };
+            algorithmCombo.Items.AddRange(new string[] { "Dijkstra", "A*", "Naive O(n²+m)" });
+            algorithmCombo.SelectedIndex = 0;
+            Controls.Add(algorithmCombo);
 
             Controls.Add(new Label { Text = "Поиск пути:", Location = new Point(x, y), Size = new Size(180, 20), Font = new Font("Arial", 10, FontStyle.Bold) });
             y += 25;
@@ -253,6 +477,11 @@ namespace ShortestPathApp
             findPathBtn = new Button { Text = "Найти путь", Location = new Point(x, y), Size = new Size(200, 35), BackColor = Color.LightGreen, Font = new Font("Arial", 10, FontStyle.Bold) };
             findPathBtn.Click += (s, e) => HandleFindPath();
             Controls.Add(findPathBtn);
+            analyzeBtn = new Button { Text = "Сравнить алгоритмы", Location = new Point(x, y), Size = new Size(200, 35), BackColor = Color.LightYellow, Font = new Font("Arial", 9, FontStyle.Bold) };
+            analyzeBtn.Click += (s, e) => HandleAnalyzeAlgorithms();
+            Controls.Add(analyzeBtn);
+            y += 45;
+
             y += 45;
 
             resetBtn = new Button { Text = "Граф по умолчанию", Location = new Point(x, y), Size = new Size(200, 30), BackColor = Color.LightBlue };
@@ -268,6 +497,12 @@ namespace ShortestPathApp
             Controls.Add(new Label { Text = "Результат:", Location = new Point(x, y), Size = new Size(100, 20), Font = new Font("Arial", 10, FontStyle.Bold) });
             y += 25;
             resultBox = new TextBox { Location = new Point(x, y), Size = new Size(430, 80), Multiline = true, ScrollBars = ScrollBars.Vertical, ReadOnly = true };
+            y += 90;
+
+            Controls.Add(new Label { Text = "Анализ эффективности:", Location = new Point(x, y), Size = new Size(180, 20), Font = new Font("Arial", 10, FontStyle.Bold) });
+            y += 25;
+            analysisBox = new TextBox { Location = new Point(x, y), Size = new Size(430, 120), Multiline = true, ScrollBars = ScrollBars.Vertical, ReadOnly = true, Font = new Font("Courier New", 8) };
+            Controls.Add(analysisBox);
             Controls.Add(resultBox);
         }
 
@@ -415,21 +650,140 @@ namespace ShortestPathApp
                 ShowWarning("Вершины не существуют");
                 return;
             }
-
+            // Select algorithm based on combo box
+            string selectedAlgorithm = algorithmCombo.SelectedItem.ToString();
+            calculatedPath = FindPathWithAlgorithm(selectedAlgorithm, start, end);
             calculatedPath = myGraph.DijkstraAlgorithm(start, end);
+            DisplayPathResult(calculatedPath, start, end);
+            visualizationPanel.Invalidate();
+        }
 
+        private ShortestPathInfo FindPathWithAlgorithm(string algorithm, string start, string end)
+        {
+            switch (algorithm)
             if (!calculatedPath.IsPathFound)
+                case "A*":
+                    return myGraph.AStarAlgorithm(start, end);
+                case "Naive O(n²+m)":
+                    return myGraph.NaiveShortestPath(start, end);
+                default: // Dijkstra
+                    return myGraph.DijkstraAlgorithm(start, end);
+                ShowMessage("Путь не существует");
+        }
+
+        private void DisplayPathResult(ShortestPathInfo path, string start, string end)
+        {
+            if (!path.IsPathFound)
             {
-                resultBox.Text = $"Путь {start}→{end} не найден\r\nГраф может быть несвязанным";
+                resultBox.Text = $"Путь {start}→{end} не найден\r\nГраф может быть несвязанным\r\nАлгоритм: {path.AlgorithmName}";
                 ShowMessage("Путь не существует");
             }
+            }
             else
-            {
-                string pathStr = string.Join(" → ", calculatedPath.VertexSequence);
-                resultBox.Text = $"Кратчайший путь {start}→{end}:\r\n{pathStr}\r\nРасстояние: {calculatedPath.TotalCost}\r\nВершин: {calculatedPath.VertexSequence.Count}";
+                string pathStr = string.Join(" → ", path.VertexSequence);
+                resultBox.Text = $"Алгоритм: {path.AlgorithmName}\r\n" +
+                                $"Кратчайший путь {start}→{end}:\r\n{pathStr}\r\n" +
+                                $"Расстояние: {path.TotalCost}\r\n" +
+                                $"Вершин в пути: {path.VertexSequence.Count}\r\n" +
+                                $"Релаксаций: {path.RelaxationCount}\r\n" +
+                                $"Посещено вершин: {path.VisitedNodesCount}";
+                ShowMessage($"Найден путь! Расстояние: {path.TotalCost}");
                 ShowMessage($"Найден путь! Расстояние: {calculatedPath.TotalCost}");
+        }
+            }
+        private void HandleAnalyzeAlgorithms()
+        {
+            string start = startBox.Text.Trim().ToUpper();
+            string end = endBox.Text.Trim().ToUpper();
+
+            if (string.IsNullOrEmpty(start) || string.IsNullOrEmpty(end))
+            {
+                ShowWarning("Введите начало и конец");
+                return;
             }
 
+            if (!myGraph.GetVertices().ContainsKey(start) || !myGraph.GetVertices().ContainsKey(end))
+            {
+                ShowWarning("Вершины не существуют");
+                return;
+            }
+
+            var results = new List<PerformanceResult>();
+            int vertexCount = myGraph.GetVertices().Count;
+            int edgeCount = myGraph.GetEdges().Values.Sum(list => list.Count);
+
+            // Run Dijkstra
+            var dijkstraResult = RunAlgorithmWithTiming("Dijkstra", start, end);
+            results.Add(dijkstraResult);
+
+            // Run A*
+            var astarResult = RunAlgorithmWithTiming("A*", start, end);
+            results.Add(astarResult);
+
+            // Run Naive
+            var naiveResult = RunAlgorithmWithTiming("Naive O(n²+m)", start, end);
+            results.Add(naiveResult);
+
+            // Display comparison table
+            DisplayAnalysisResults(results, vertexCount, edgeCount);
+        }
+
+        private PerformanceResult RunAlgorithmWithTiming(string algorithm, string start, string end)
+        {
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var pathInfo = FindPathWithAlgorithm(algorithm, start, end);
+            stopwatch.Stop();
+
+            return new PerformanceResult
+            {
+                AlgorithmName = algorithm,
+                VertexCount = myGraph.GetVertices().Count,
+                EdgeCount = myGraph.GetEdges().Values.Sum(list => list.Count),
+                RelaxationCount = pathInfo.RelaxationCount,
+                VisitedNodesCount = pathInfo.VisitedNodesCount,
+                ExecutionTimeMs = stopwatch.Elapsed.TotalMilliseconds
+            };
+        }
+
+        private void DisplayAnalysisResults(List<PerformanceResult> results, int vertexCount, int edgeCount)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("СРАВНИТЕЛЬНЫЙ АНАЛИЗ АЛГОРИТМОВ");
+            sb.AppendLine("═══════════════════════════════════════════════");
+            sb.AppendLine($"Граф: вершин = {vertexCount}, рёбер = {edgeCount}");
+            sb.AppendLine();
+            sb.AppendLine("Алгоритм          | Релаксации | Посещено | Время(мс)");
+            sb.AppendLine("──────────────────┼────────────┼──────────┼──────────");
+
+            foreach (var result in results)
+            {
+                string algoName = result.AlgorithmName.PadRight(17);
+                string relaxations = result.RelaxationCount.ToString().PadLeft(10);
+                string visited = result.VisitedNodesCount.ToString().PadLeft(8);
+                string time = result.ExecutionTimeMs.ToString("F3").PadLeft(9);
+                sb.AppendLine($"{algoName} | {relaxations} | {visited} | {time}");
+            }
+
+            sb.AppendLine();
+            sb.AppendLine("ТЕОРЕТИЧЕСКАЯ СЛОЖНОСТЬ:");
+            sb.AppendLine($"Naive:    O(n²+m) = O({vertexCount}²+{edgeCount}) = O({vertexCount * vertexCount + edgeCount})");
+            sb.AppendLine($"Dijkstra: O(n²+m) = O({vertexCount * vertexCount + edgeCount})");
+            sb.AppendLine($"A*:       O(b^d) зависит от эвристики");
+            sb.AppendLine();
+
+            var bestRelaxations = results.Min(r => r.RelaxationCount);
+            var bestTime = results.Min(r => r.ExecutionTimeMs);
+            
+            sb.AppendLine("ВЫВОДЫ:");
+            foreach (var result in results)
+            {
+                double efficiency = (double)bestRelaxations / result.RelaxationCount * 100;
+                sb.AppendLine($"• {result.AlgorithmName}: эффективность {efficiency:F1}% " +
+                             $"({result.RelaxationCount} vs {bestRelaxations} оптим.)");
+            }
+
+            analysisBox.Text = sb.ToString();
+            ShowMessage("Анализ завершён! См. таблицу ниже.");
             visualizationPanel.Invalidate();
         }
 
